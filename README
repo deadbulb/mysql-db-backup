@@ -1,0 +1,52 @@
+mysql-db-backup
+===============
+
+Script for backing up a MySQL Database with different options
+
+Motivation
+----------
+
+The impact of Dumping my databases caused service outages be-
+cause the load of dumping was too high. So this script offers
+several ways to reduce load at dumping the databases.
+
+Features
+--------
+
+- Use "nice" for CPU throttling
+- Use "ionice" for I/O throttling
+- Use "cstream" for mysqldump bandwidth limitation
+- Use "split" for dump file splitting.
+- Use compression with xz/bzip2/gzip
+- Exclude databases
+- Logging / Debugging
+
+Requirements
+------------
+
+Install the tools mentioned above for the features
+to work. If not available backup will be done with-
+out these tools if possible.
+
+Databases to be backed up should use InnoDB-Storage-
+Engine(should be default). With MyISAM, I think, dumps
+are not consistent.
+
+Installation and Usage
+----------------------
+
+- Copy this script to your system and set +x bit.
+- Review the config part at the top of the script and
+  configure it to your needs
+- Let it call via cron, at a time that is convenient
+  for you
+- Create the password file with the password corres-
+  ponding to the username you configured in the script,
+  like this:
+
+--- /root/.my.cnf.save -------
+
+[client]
+password="yourbackupoperatorpasswordhere"
+
+--- /root/.my.cnf.save END ---
