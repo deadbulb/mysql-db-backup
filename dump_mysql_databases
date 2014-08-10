@@ -1,0 +1,142 @@
+#!/bin/bash
+
+#	Program: dump_mysql_databases
+#
+#	Purpose: Dump mysql Databases and offering different possibilities
+#                to reduce load 
+#
+
+# ------------ CONFIG SECTION ------------------
+
+        BACKUP_DIR=/var/backups/mysql
+MYSQL_OPTIONS_FILE="/root/.my.cnf.save"			# <--- Password for user hast to be set in there
+   MYSQL_DUMP_USER="MYSQLADMINACCOUNTNAME"		# <--- MySQL-Admin user, that has read access to all databases
+  IGNORE_DATABASES="nobackupdb1 nobackupdb2"		# <--- Do not backup those databases(separated by spaces!)
+       SPEED_LIMIT="2000"				# <--- Limit MySQL-Output Bandwidth to this value (KBytes/second)
+        SPLIT_SIZE="50"					# <--- Split Compressed Files in chunks of this size (MBytes)
+
+	     DEBUG=0					# <--- Set to 1 if you want some more details
+
+          LOG_FILE=/tmp/mysqldump.log
+     MYSQL_OPTIONS="--defaults-file=$MYSQL_OPTIONS_FILE -u $MYSQL_DUMP_USER -s"
+MYSQL_DUMP_OPTIONS="--defaults-file=$MYSQL_OPTIONS_FILE -u $MYSQL_DUMP_USER --single-transaction"
+
+# ------------ MAIN PROGRAM   ------------------
+
+function _log  { echo >&2 "$(date) : $*"; }
+function _dbg  { if [ "$DEBUG" = 1 ]; then echo >&2 "$(date) : $*"; fi; }
+
+function _check_proc {
+
+	# check programs if available
+	# PAR1		REQUIRED / OPTIONAL
+	# PAR2 		SHORT DESCRIPTION OF WHAT PROGRAM IS DOING
+	# PAR3 ...	POSSIBLE PROGRAM LOCATIONS
+
+	 PROC_IMPORTANCE="$1"
+	PROC_DESCRIPTION="$2"
+	shift 2
+	PROC=$(basename $1)
+	for proc in $*;do
+		if [ -x "$proc" ]; then
+			echo $proc 
+			_dbg "Program $proc found"
+			return
+		elif [ -x "$(basename $proc)" ]; then
+			echo $(basename $proc)
+			_dbg "Program $proc found"
+			return
+		fi
+	done
+	if [ "$PROC_IMPORTANCE" = "REQUIRED" ]; then
+		_log "ERROR: $PROC not found, but this is required, no backup"
+		exit 1
+	else
+		_log "INFO: $PROC not found, $PROC_DESCRIPTION disabled"
+	fi
+}
+
+function _make_regex { 
+
+	# Make a regex for DB-Name filtering like this:
+	#
+	# (text1|text2|text3)
+	#
+
+	[ $# -lt 1 ] && return 
+	set $*
+	echo -n "("
+	i=0
+	while [ -n "$1" ]; do
+		[ $i -gt 0 ] && echo -n "|"
+		echo -n $1
+		((i=$i+1))
+		shift
+	done
+	echo ")"
+}
+
+
+{
+
+_log "Target Directory      : $BACKUP_DIR"
+_log "Ignored Databases     : $IGNORE_DATABASES"
+_log "Set Speed Limit       : $SPEED_LIMIT KBytes/sec"
+_log "Split File Chunk Size : $SPLIT_SIZE MBytes"
+
+# --- Check needed programs
+
+    IONICE=$(_check_proc OPTIONAL "I/O Nice"            /usr/bin/ionice                          )
+      NICE=$(_check_proc OPTIONAL "CPU Nice"            /usr/bin/nice                            )
+  COMPRESS=$(_check_proc OPTIONAL "Compression"         /usr/bin/xz /usr/bin/bzip2 /usr/bin/gzip )
+     MYSQL=$(_check_proc REQUIRED "MySQL-Client"        /usr/bin/mysql                           )
+   CSTREAM=$(_check_proc OPTIONAL "Bandwidth Limitting" /usr/bin/cstream                         )
+     SPLIT=$(_check_proc OPTIONAL "File Splitting"      /usr/bin/split                           )
+MYSQL_DUMP=$(_check_proc REQUIRED "MySQL-Dump"          /usr/bin/mysqldump                       )
+
+((SPEED_LIMIT=$SPEED_LIMIT*1024))
+ ((SPLIT_SIZE=$SPLIT_SIZE*1024*1024))
+
+[ -n "$IONICE"   ] &&   IONICE="$IONICE  -c3 "
+[ -n "$NICE"     ] &&     NICE="$NICE    -n19"
+[ -n "$CSTREAM"  ] &&  CSTREAM="$CSTREAM -t $SPEED_LIMIT" || CSTREAM="cat"
+[ -n "$SPLIT"    ] &&    SPLIT="$SPLIT   -a 4 -b $SPLIT_SIZE -d - "
+[ -n "$COMPRESS" ] && {
+	_log "Compressing program   : $COMPRESS"
+	[ "${COMPRESS: -2}" = "xz"    ] && COMPRESS_EXT=xz
+	[ "${COMPRESS: -5}" = "bzip2" ] && COMPRESS_EXT=bz2
+	[ "${COMPRESS: -4}" = "gzip"  ] && COMPRESS_EXT=gz	; }
+
+	_log "mysqldump starting"
+
+	BACKUP_TMP_DIR=$BACKUP_DIR/tmp
+
+	mkdir -p $BACKUP_TMP_DIR
+	rm    -f $BACKUP_TMP_DIR/*
+
+	# set basic language -> no hassel with different outputs
+	DBS="$(LC_ALL=C LANG=C echo "show databases" 				\
+		| mysql $MYSQL_OPTIONS 						\
+		| grep -vE $(_make_regex $IGNORE_DATABASES information_schema)	)"
+
+	# main backup part comes here
+	for db in $DBS ; do 
+		[ -n "$SPLIT" ] && SPLIT_CMD="$SPLIT $BACKUP_TMP_DIR/${db}.sql.${COMPRESS_EXT}."
+		_log "Backup of database $db started"
+		[ "$DEBUG" = 1 ] && set -x
+		$IONICE $NICE mysqldump $MYSQL_DUMP_OPTIONS --databases $db 	\
+			| $CSTREAM 						\
+			| $IONICE $NICE $COMPRESS -9				\
+			| { [ -n "$SPLIT_CMD" ] && $SPLIT_CMD || cat >$BACKUP_TMP_DIR/${db}.sql.${COMPRESS_EXT} ; }
+		set +x
+	done
+
+	# Yes I know, theres an error message complaining about not being able
+        # to delete the temp directory
+	rm -f $BACKUP_DIR/* 2>/dev/null
+
+	mv $BACKUP_TMP_DIR/* $BACKUP_DIR
+	_log "mysqldump finished"
+
+} >>$LOG_FILE 2>&1 &
+
