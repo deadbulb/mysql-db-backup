@@ -5,6 +5,7 @@
 #	Purpose: Dump mysql Databases and offering different possibilities
 #                to reduce load 
 #
+#	License: GPLv3 (file enclosed)
 
 # ------------ CONFIG SECTION ------------------
 
