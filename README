@@ -38,7 +38,7 @@ Installation and Usage
 - Copy this script to your system and set +x bit.
 - Review the config part at the top of the script and
   configure it to your needs
-- Let it call via cron, at a time that is convenient
+- Let cron call the script, at a time that is convenient
   for you
 - Create the password file with the password corres-
   ponding to the username you configured in the script,
