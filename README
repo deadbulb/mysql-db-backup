@@ -6,7 +6,7 @@ Script for backing up a MySQL Database with different options
 Motivation
 ----------
 
-The impact of Dumping my databases caused service outages be-
+The impact of dumping my databases caused service outages be-
 cause the load of dumping was too high. So this script offers
 several ways to reduce load at dumping the databases.
 
@@ -50,3 +50,13 @@ Installation and Usage
 password="yourbackupoperatorpasswordhere"
 
 --- /root/.my.cnf.save END ---
+
+Further notes
+-------------
+
+Split is used because it may give you advantages 
+with your backup handling. Files are split into
+small pieces, so there is a chance, that one or
+more files having unchanged content and maybe 
+you do not have to back it up because of that.
+
